@@ -326,10 +326,11 @@ class DualVolumeScannerUI:
         # Update scanner config
         self.update_scanners()
         
-        # Run scan in thread
-        thread = threading.Thread(target=self._scan_premarket_thread)
-        thread.daemon = True
-        thread.start()
+        # IMPORTANT:
+        # IBKR (ib_insync) historical data calls must run in the main thread.
+        # Running them from a background thread causes timeouts / no data.
+        # So we run the scan synchronously in the main thread.
+        self._scan_premarket_thread()
     
     def _scan_premarket_thread(self):
         """Thread function for pre-market scan"""
@@ -452,10 +453,11 @@ class DualVolumeScannerUI:
         # Update scanner config
         self.update_scanners()
         
-        # Run scan in thread
-        thread = threading.Thread(target=self._scan_rth_thread)
-        thread.daemon = True
-        thread.start()
+        # IMPORTANT:
+        # IBKR (ib_insync) historical data calls must run in the main thread.
+        # Running them from a background thread causes timeouts / no data.
+        # So we run the scan synchronously in the main thread.
+        self._scan_rth_thread()
     
     def _scan_rth_thread(self):
         """Thread function for RTH scan"""
