@@ -15,6 +15,67 @@ from scanner_rth import RTHScanner
 from config import PreMarketConfig, RTHConfig, IBKRConfig, DEFAULT_IBKR_CONFIG
 
 
+def show_auto_dismiss_warning(root, title, message, timeout=10):
+    """
+    Show a warning messagebox that automatically dismisses after timeout seconds
+    
+    Args:
+        root: Tkinter root window
+        title: Dialog title
+        message: Message text
+        timeout: Auto-dismiss timeout in seconds (default: 10)
+    """
+    # Create a Toplevel window that looks like a messagebox
+    dialog = tk.Toplevel(root)
+    dialog.title(title)
+    dialog.geometry("500x300")
+    dialog.transient(root)
+    dialog.grab_set()  # Make it modal
+    
+    # Center the dialog
+    dialog.update_idletasks()
+    x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+    y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+    dialog.geometry(f"+{x}+{y}")
+    
+    # Create frame with padding
+    frame = ttk.Frame(dialog, padding="20")
+    frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Warning icon (or just text)
+    ttk.Label(frame, text="⚠️", font=("Arial", 24)).pack(pady=(0, 10))
+    
+    # Title
+    ttk.Label(frame, text=title, font=("Arial", 12, "bold")).pack(pady=(0, 10))
+    
+    # Message (with word wrapping)
+    message_label = ttk.Label(frame, text=message, wraplength=450, justify=tk.LEFT)
+    message_label.pack(pady=(0, 20), fill=tk.BOTH, expand=True)
+    
+    # Countdown label
+    countdown_label = ttk.Label(frame, text=f"Auto-closing in {timeout} seconds...", 
+                                font=("Arial", 9), foreground="gray")
+    countdown_label.pack(pady=(0, 10))
+    
+    # OK button
+    ok_button = ttk.Button(frame, text="OK", command=dialog.destroy)
+    ok_button.pack()
+    
+    # Auto-dismiss countdown
+    def update_countdown(remaining):
+        if remaining > 0:
+            countdown_label.config(text=f"Auto-closing in {remaining} seconds...")
+            root.after(1000, lambda: update_countdown(remaining - 1))
+        else:
+            dialog.destroy()
+    
+    # Start countdown
+    root.after(1000, lambda: update_countdown(timeout - 1))
+    
+    # Focus on dialog
+    dialog.focus_set()
+
+
 class DualVolumeScannerUI:
     """Main UI for Dual Volume Scanner"""
     
@@ -35,6 +96,12 @@ class DualVolumeScannerUI:
         self.tickers = []
         self.pm_results = pd.DataFrame()
         self.rth_results = pd.DataFrame()
+        
+        # Auto-refresh
+        self.auto_refresh_enabled = False
+        self.auto_refresh_interval = 60  # seconds
+        self.auto_refresh_job = None
+        self.last_update_time = None
         
         # Build UI
         self.build_ui()
@@ -66,6 +133,21 @@ class DualVolumeScannerUI:
         self.ticker_file_label.pack(side=tk.LEFT, padx=5)
         
         ttk.Button(ticker_frame, text="Load Tickers", command=self.load_tickers).pack(side=tk.LEFT, padx=5)
+        
+        # Auto-refresh frame
+        refresh_frame = ttk.LabelFrame(top_frame, text="Auto-Refresh", padding="5")
+        refresh_frame.pack(side=tk.LEFT, padx=5)
+        
+        self.auto_refresh_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(refresh_frame, text="Enable", variable=self.auto_refresh_var,
+                       command=self.toggle_auto_refresh).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(refresh_frame, text="Interval (sec):").pack(side=tk.LEFT, padx=5)
+        self.refresh_interval_var = tk.StringVar(value="60")
+        ttk.Entry(refresh_frame, textvariable=self.refresh_interval_var, width=6).pack(side=tk.LEFT, padx=2)
+        
+        self.last_update_label = ttk.Label(refresh_frame, text="Last update: Never", foreground="gray")
+        self.last_update_label.pack(side=tk.LEFT, padx=5)
         
         # Main container for two scanners
         main_container = ttk.Frame(self.root, padding="10")
@@ -332,10 +414,11 @@ class DualVolumeScannerUI:
         # So we run the scan synchronously in the main thread.
         self._scan_premarket_thread()
     
-    def _scan_premarket_thread(self):
+    def _scan_premarket_thread(self, is_auto_refresh=False):
         """Thread function for pre-market scan"""
         try:
-            self.root.after(0, lambda: self.conn_status_label.config(text="Scanning Pre-Market...", foreground="orange"))
+            if not is_auto_refresh:
+                self.root.after(0, lambda: self.conn_status_label.config(text="Scanning Pre-Market...", foreground="orange"))
             
             pm_timeframes = [tf for tf, var in self.pm_timeframes.items() if var.get()]
             if not pm_timeframes:
@@ -382,13 +465,48 @@ class DualVolumeScannerUI:
                 valid_mask = (~df['Notes'].str.contains('Error|No data|IP mismatch', case=False, na=False))
                 
                 if valid_mask.any():
-                    valid_df = df[valid_mask]
+                    valid_df = df[valid_mask].copy()
+                    min_rel_vol = float(self.pm_min_rel_vol.get() or "3.0")
+                    min_avg_vol = int(self.pm_min_avg_vol.get() or "0")
+                    
+                    # Add notes for filtered results
+                    below_rel_vol = valid_df['RelVol'] < min_rel_vol
+                    below_avg_vol = valid_df['Avg10DVol'] < min_avg_vol
+                    
+                    valid_df.loc[below_rel_vol, 'Notes'] = valid_df.loc[below_rel_vol, 'Notes'].apply(
+                        lambda x: f"Below min rel vol ({min_rel_vol}x)" if not x else x
+                    )
+                    valid_df.loc[below_avg_vol, 'Notes'] = valid_df.loc[below_avg_vol, 'Notes'].apply(
+                        lambda x: f"Below min avg vol ({min_avg_vol})" if not x else x
+                    )
+                    
+                    # Keep results that pass filters
                     filtered_valid = valid_df[
-                        (valid_df['RelVol'] >= float(self.pm_min_rel_vol.get() or "3.0")) &
-                        (valid_df['Avg10DVol'] >= int(self.pm_min_avg_vol.get() or "0"))
+                        (valid_df['RelVol'] >= min_rel_vol) &
+                        (valid_df['Avg10DVol'] >= min_avg_vol)
                     ]
+                    
+                    # Keep filtered-out results with notes explaining why
+                    filtered_out = valid_df[
+                        (valid_df['RelVol'] < min_rel_vol) |
+                        (valid_df['Avg10DVol'] < min_avg_vol)
+                    ]
+                    
                     error_df = df[~valid_mask]
-                    df = pd.concat([filtered_valid, error_df], ignore_index=True)
+                    # Combine: passed filters + filtered out (with notes) + errors
+                    df = pd.concat([filtered_valid, filtered_out, error_df], ignore_index=True)
+                    
+                    # Print diagnostic info (only for manual scans, not auto-refresh)
+                    if len(filtered_out) > 0 and not getattr(self, '_is_auto_refresh_scan', False):
+                        print(f"\n⚠️  {len(filtered_out)} results filtered out:")
+                        print(f"   Min RelVol: {min_rel_vol}x, Min AvgVol: {min_avg_vol}")
+                        print(f"   {len(filtered_valid)} results passed filters")
+                    elif len(filtered_out) > 0 and getattr(self, '_is_auto_refresh_scan', False):
+                        # Quiet mode for auto-refresh
+                        print(f"   [{len(filtered_valid)}/{len(valid_df)} passed filters]")
+                else:
+                    # All results are errors/no data
+                    df = df
             
             self.pm_results = df
             
@@ -415,20 +533,42 @@ class DualVolumeScannerUI:
             
             # Update UI in main thread
             self.root.after(0, lambda: self.update_pm_table(df))
+            self.root.after(0, lambda: self.update_last_update_time())
             self.root.after(0, lambda: self.conn_status_label.config(text="Connected", foreground="green"))
+            
+            # Schedule next auto-refresh if enabled
+            self.root.after(0, lambda: self.schedule_next_refresh())
             
             # Show summary message
             print(f"\nScan complete: {len(df)} results")
-            if df.empty:
-                self.root.after(0, lambda: messagebox.showinfo("Scan Complete", 
-                    f"Scan completed but no results found.\n\n"
-                    f"Scanned {total_tickers} tickers.\n\n"
-                    "Check:\n"
-                    "- Market is in pre-market hours (4:00 AM - 9:30 AM ET)\n"
-                    "- Ticker symbols are correct\n"
-                    "- Filters are not too restrictive\n"
-                    "- Lower Min Rel Vol if needed\n\n"
-                    "Check console for detailed error messages."))
+            
+            # Count results by type
+            if not df.empty:
+                passed_filters = len(df[~df['Notes'].str.contains('Below min|Error|No data|IP mismatch', case=False, na=False)])
+                filtered_out = len(df[df['Notes'].str.contains('Below min', case=False, na=False)])
+                errors = len(df[df['Notes'].str.contains('Error|No data|IP mismatch', case=False, na=False)])
+                
+                if passed_filters == 0 and filtered_out > 0:
+                    # Results exist but all filtered out
+                    min_rel_vol = float(self.pm_min_rel_vol.get() or "3.0")
+                    min_avg_vol = int(self.pm_min_avg_vol.get() or "0")
+                    msg = (f"Scan completed: {len(df)} results found, but all were filtered out.\n\n"
+                           f"Scanned {total_tickers} tickers.\n\n"
+                           f"Current filters:\n"
+                           f"- Min RelVol: {min_rel_vol}x\n"
+                           f"- Min AvgVol: {min_avg_vol}\n\n"
+                           f"💡 Tip: Lower the Min RelVol threshold (try 1.0 or 2.0) to see results.\n"
+                           f"Filtered results are still shown in the table with notes.\n\n"
+                           f"Check console for detailed results.")
+                    self.root.after(0, lambda: show_auto_dismiss_warning(self.root, "Scan Complete - All Filtered", msg))
+                elif df.empty:
+                    self.root.after(0, lambda: messagebox.showinfo("Scan Complete", 
+                        f"Scan completed but no results found.\n\n"
+                        f"Scanned {total_tickers} tickers.\n\n"
+                        "Check:\n"
+                        "- Market is in pre-market hours (4:00 AM - 9:30 AM ET)\n"
+                        "- Ticker symbols are correct\n"
+                        "- Check console for detailed error messages."))
             else:
                 count = len(df)
                 self.root.after(0, lambda: self.conn_status_label.config(
@@ -459,10 +599,11 @@ class DualVolumeScannerUI:
         # So we run the scan synchronously in the main thread.
         self._scan_rth_thread()
     
-    def _scan_rth_thread(self):
+    def _scan_rth_thread(self, is_auto_refresh=False):
         """Thread function for RTH scan"""
         try:
-            self.root.after(0, lambda: self.conn_status_label.config(text="Scanning RTH...", foreground="orange"))
+            if not is_auto_refresh:
+                self.root.after(0, lambda: self.conn_status_label.config(text="Scanning RTH...", foreground="orange"))
             
             rth_timeframes = [tf for tf, var in self.rth_timeframes.items() if var.get()]
             if not rth_timeframes:
@@ -509,13 +650,48 @@ class DualVolumeScannerUI:
                 valid_mask = (~df['Notes'].str.contains('Error|No data|IP mismatch', case=False, na=False))
                 
                 if valid_mask.any():
-                    valid_df = df[valid_mask]
+                    valid_df = df[valid_mask].copy()
+                    min_rel_vol = float(self.rth_min_rel_vol.get() or "3.0")
+                    min_avg_vol = int(self.rth_min_avg_vol.get() or "0")
+                    
+                    # Add notes for filtered results
+                    below_rel_vol = valid_df['RelVol'] < min_rel_vol
+                    below_avg_vol = valid_df['Avg10DVol'] < min_avg_vol
+                    
+                    valid_df.loc[below_rel_vol, 'Notes'] = valid_df.loc[below_rel_vol, 'Notes'].apply(
+                        lambda x: f"Below min rel vol ({min_rel_vol}x)" if not x else x
+                    )
+                    valid_df.loc[below_avg_vol, 'Notes'] = valid_df.loc[below_avg_vol, 'Notes'].apply(
+                        lambda x: f"Below min avg vol ({min_avg_vol})" if not x else x
+                    )
+                    
+                    # Keep results that pass filters
                     filtered_valid = valid_df[
-                        (valid_df['RelVol'] >= float(self.rth_min_rel_vol.get() or "3.0")) &
-                        (valid_df['Avg10DVol'] >= int(self.rth_min_avg_vol.get() or "0"))
+                        (valid_df['RelVol'] >= min_rel_vol) &
+                        (valid_df['Avg10DVol'] >= min_avg_vol)
                     ]
+                    
+                    # Keep filtered-out results with notes explaining why
+                    filtered_out = valid_df[
+                        (valid_df['RelVol'] < min_rel_vol) |
+                        (valid_df['Avg10DVol'] < min_avg_vol)
+                    ]
+                    
                     error_df = df[~valid_mask]
-                    df = pd.concat([filtered_valid, error_df], ignore_index=True)
+                    # Combine: passed filters + filtered out (with notes) + errors
+                    df = pd.concat([filtered_valid, filtered_out, error_df], ignore_index=True)
+                    
+                    # Print diagnostic info (only for manual scans, not auto-refresh)
+                    if len(filtered_out) > 0 and not getattr(self, '_is_auto_refresh_scan', False):
+                        print(f"\n⚠️  {len(filtered_out)} results filtered out:")
+                        print(f"   Min RelVol: {min_rel_vol}x, Min AvgVol: {min_avg_vol}")
+                        print(f"   {len(filtered_valid)} results passed filters")
+                    elif len(filtered_out) > 0 and getattr(self, '_is_auto_refresh_scan', False):
+                        # Quiet mode for auto-refresh
+                        print(f"   [{len(filtered_valid)}/{len(valid_df)} passed filters]")
+                else:
+                    # All results are errors/no data
+                    df = df
             
             self.rth_results = df
             
@@ -542,20 +718,42 @@ class DualVolumeScannerUI:
             
             # Update UI in main thread
             self.root.after(0, lambda: self.update_rth_table(df))
+            self.root.after(0, lambda: self.update_last_update_time())
             self.root.after(0, lambda: self.conn_status_label.config(text="Connected", foreground="green"))
+            
+            # Schedule next auto-refresh if enabled
+            self.root.after(0, lambda: self.schedule_next_refresh())
             
             # Show summary message
             print(f"\nScan complete: {len(df)} results")
-            if df.empty:
-                self.root.after(0, lambda: messagebox.showinfo("Scan Complete", 
-                    f"Scan completed but no results found.\n\n"
-                    f"Scanned {total_tickers} tickers.\n\n"
-                    "Check:\n"
-                    "- Market is open (9:30 AM - 4:00 PM ET)\n"
-                    "- Ticker symbols are correct\n"
-                    "- Filters are not too restrictive\n"
-                    "- Lower Min Rel Vol if needed\n\n"
-                    "Check console for detailed error messages."))
+            
+            # Count results by type
+            if not df.empty:
+                passed_filters = len(df[~df['Notes'].str.contains('Below min|Error|No data|IP mismatch', case=False, na=False)])
+                filtered_out = len(df[df['Notes'].str.contains('Below min', case=False, na=False)])
+                errors = len(df[df['Notes'].str.contains('Error|No data|IP mismatch', case=False, na=False)])
+                
+                if passed_filters == 0 and filtered_out > 0:
+                    # Results exist but all filtered out
+                    min_rel_vol = float(self.rth_min_rel_vol.get() or "3.0")
+                    min_avg_vol = int(self.rth_min_avg_vol.get() or "0")
+                    msg = (f"Scan completed: {len(df)} results found, but all were filtered out.\n\n"
+                           f"Scanned {total_tickers} tickers.\n\n"
+                           f"Current filters:\n"
+                           f"- Min RelVol: {min_rel_vol}x\n"
+                           f"- Min AvgVol: {min_avg_vol}\n\n"
+                           f"💡 Tip: Lower the Min RelVol threshold (try 1.0 or 2.0) to see results.\n"
+                           f"Filtered results are still shown in the table with notes.\n\n"
+                           f"Check console for detailed results.")
+                    self.root.after(0, lambda: show_auto_dismiss_warning(self.root, "Scan Complete - All Filtered", msg))
+                elif df.empty:
+                    self.root.after(0, lambda: messagebox.showinfo("Scan Complete", 
+                        f"Scan completed but no results found.\n\n"
+                        f"Scanned {total_tickers} tickers.\n\n"
+                        "Check:\n"
+                        "- Market is open (9:30 AM - 4:00 PM ET)\n"
+                        "- Ticker symbols are correct\n"
+                        "- Check console for detailed error messages."))
             else:
                 count = len(df)
                 self.root.after(0, lambda: self.conn_status_label.config(
@@ -643,6 +841,111 @@ class DualVolumeScannerUI:
         
         # Toggle reverse for next click
         tree.heading(col, command=lambda: self.sort_treeview(tree, col, numeric, not reverse))
+    
+    def toggle_auto_refresh(self):
+        """Enable/disable auto-refresh"""
+        self.auto_refresh_enabled = self.auto_refresh_var.get()
+        if self.auto_refresh_enabled:
+            # Start auto-refresh
+            try:
+                self.auto_refresh_interval = int(self.refresh_interval_var.get() or "60")
+                if self.auto_refresh_interval < 10:
+                    self.auto_refresh_interval = 10  # Minimum 10 seconds
+                    self.refresh_interval_var.set("10")
+                    messagebox.showwarning("Warning", "Auto-refresh interval set to minimum 10 seconds")
+            except ValueError:
+                self.auto_refresh_interval = 60
+                self.refresh_interval_var.set("60")
+                messagebox.showerror("Error", "Invalid interval. Using default 60 seconds")
+            
+            print(f"Auto-refresh enabled: {self.auto_refresh_interval} seconds")
+            self.schedule_next_refresh()
+        else:
+            # Stop auto-refresh
+            if self.auto_refresh_job:
+                self.root.after_cancel(self.auto_refresh_job)
+                self.auto_refresh_job = None
+            print("Auto-refresh disabled")
+    
+    def schedule_next_refresh(self):
+        """Schedule the next auto-refresh"""
+        if not self.auto_refresh_enabled:
+            return
+        
+        if not self.connected or not self.tickers:
+            # Can't refresh if not connected or no tickers
+            return
+        
+        # Cancel existing job if any
+        if self.auto_refresh_job:
+            self.root.after_cancel(self.auto_refresh_job)
+        
+        # Schedule next refresh
+        interval_ms = self.auto_refresh_interval * 1000
+        self.auto_refresh_job = self.root.after(interval_ms, self.auto_refresh_scan)
+        print(f"Next auto-refresh scheduled in {self.auto_refresh_interval} seconds")
+    
+    def auto_refresh_scan(self):
+        """Perform auto-refresh scan"""
+        if not self.auto_refresh_enabled or not self.connected or not self.tickers:
+            return
+        
+        # Set flag to indicate this is an auto-refresh scan (for quieter output)
+        self._is_auto_refresh_scan = True
+        
+        print(f"\n{'='*80}")
+        print(f"AUTO-REFRESH: Starting automatic scan at {datetime.now().strftime('%H:%M:%S')}")
+        print(f"{'='*80}")
+        
+        # Update interval in case user changed it
+        try:
+            new_interval = int(self.refresh_interval_var.get() or "60")
+            if new_interval != self.auto_refresh_interval:
+                self.auto_refresh_interval = new_interval
+                print(f"Auto-refresh interval updated to {self.auto_refresh_interval} seconds")
+        except ValueError:
+            pass
+        
+        # Determine which scanner to run based on current time
+        from datetime import time as dt_time
+        import pytz
+        
+        et_tz = pytz.timezone('US/Eastern')
+        now_et = datetime.now(et_tz)
+        current_time = now_et.time()
+        
+        # Pre-market: 04:00-09:30 ET
+        # RTH: 09:30-16:00 ET
+        pm_start = dt_time(4, 0)
+        pm_end = dt_time(9, 30)
+        rth_start = dt_time(9, 30)
+        rth_end = dt_time(16, 0)
+        
+        scan_pm = pm_start <= current_time < pm_end
+        scan_rth = rth_start <= current_time < rth_end
+        
+        # Run appropriate scans
+        if scan_pm:
+            print("Running Pre-Market scan (auto-refresh)...")
+            self._scan_premarket_thread(is_auto_refresh=True)
+        
+        if scan_rth:
+            print("Running RTH scan (auto-refresh)...")
+            self._scan_rth_thread(is_auto_refresh=True)
+        
+        if not scan_pm and not scan_rth:
+            print(f"Outside market hours ({current_time.strftime('%H:%M')} ET). Skipping auto-refresh.")
+            # Schedule next refresh anyway
+            self.schedule_next_refresh()
+        
+        # Clear the auto-refresh flag
+        self._is_auto_refresh_scan = False
+    
+    def update_last_update_time(self):
+        """Update the last update time label"""
+        self.last_update_time = datetime.now()
+        time_str = self.last_update_time.strftime('%H:%M:%S')
+        self.last_update_label.config(text=f"Last update: {time_str}", foreground="green")
 
 
 def main():
