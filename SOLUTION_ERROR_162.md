@@ -74,8 +74,12 @@ If TWS continues to have issues:
 2. **Open IB Gateway** (lighter, fewer issues)
 3. **Log in to IB Gateway**
 4. **Update port in config.py**:
-   - Paper trading: `port = 4001`
-   - Live trading: `port = 4002`
+   ```python
+   port: int = 4001  # IB Gateway paper trading
+   # or
+   port: int = 4002  # IB Gateway live trading
+   ```
+   **Note**: TWS uses ports 7497 (paper) or 7496 (live). IB Gateway uses 4001 (paper) or 4002 (live).
 5. **Restart scanner and connect**
 
 ## Check TWS API Settings:

@@ -52,7 +52,7 @@ class RTHScanner:
             df = self.ibkr_client.get_historical_bars_sync(
                 ticker=ticker,
                 duration=duration,
-                bar_size="1 min",
+                bar_size="1 min",  # Will be converted to "1 mins" in ibkr_client
                 use_rth=self.config.use_rth
             )
             

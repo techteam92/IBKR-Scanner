@@ -39,8 +39,9 @@ class RTHConfig(ScannerConfig):
 class IBKRConfig:
     """IBKR connection configuration"""
     host: str = "127.0.0.1"
-    port: int = 7497  # TWS: 7497, IB Gateway: 4001
-    client_id: int = 1
+    port: int = 7497  # IB Gateway: 4001 (paper) or 4002 (live)
+    # TWS uses: 7497 (paper) or 7496 (live)
+    client_id: int = 2  # Change if you have other projects connected (use unique IDs: 1, 2, 3, etc.)
     timeout: int = 30
 
 
