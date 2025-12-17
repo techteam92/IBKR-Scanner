@@ -129,10 +129,25 @@ class DualVolumeScannerUI:
         ticker_frame = ttk.LabelFrame(top_frame, text="Ticker List", padding="5")
         ticker_frame.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
-        self.ticker_file_label = ttk.Label(ticker_frame, text="No file loaded")
+        # Direct input option
+        input_row = ttk.Frame(ticker_frame)
+        input_row.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(input_row, text="Enter Tickers:").pack(side=tk.LEFT, padx=5)
+        self.ticker_input = tk.Text(input_row, height=2, width=40)
+        self.ticker_input.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.ticker_input.insert("1.0", "AAPL, TSLA, SPY")  # Default example
+        
+        ttk.Button(input_row, text="Load from Input", command=self.load_tickers_from_input).pack(side=tk.LEFT, padx=5)
+        
+        # File load option (alternative)
+        file_row = ttk.Frame(ticker_frame)
+        file_row.pack(fill=tk.X)
+        
+        self.ticker_file_label = ttk.Label(file_row, text="Or load from file:")
         self.ticker_file_label.pack(side=tk.LEFT, padx=5)
         
-        ttk.Button(ticker_frame, text="Load Tickers", command=self.load_tickers).pack(side=tk.LEFT, padx=5)
+        ttk.Button(file_row, text="Load from File", command=self.load_tickers).pack(side=tk.LEFT, padx=5)
         
         # Auto-refresh frame
         refresh_frame = ttk.LabelFrame(top_frame, text="Auto-Refresh", padding="5")
@@ -202,7 +217,7 @@ class DualVolumeScannerUI:
         pm_scroll_y = ttk.Scrollbar(pm_table_frame, orient=tk.VERTICAL)
         pm_scroll_x = ttk.Scrollbar(pm_table_frame, orient=tk.HORIZONTAL)
         
-        columns = ('Ticker', 'Timeframe', 'TodayVol', 'Avg10DVol', 'RelVol', 'PercentDiff', 'Notes')
+        columns = ('Ticker', 'Timeframe', 'TodayVol', 'Avg10DVol', 'DailyVol', 'RelVol', 'PercentDiff', 'Notes')
         self.pm_tree = ttk.Treeview(pm_table_frame, columns=columns, show='headings',
                                     yscrollcommand=pm_scroll_y.set, xscrollcommand=pm_scroll_x.set)
         
@@ -214,6 +229,7 @@ class DualVolumeScannerUI:
         self.pm_tree.heading('Timeframe', text='Timeframe', command=lambda: self.sort_treeview(self.pm_tree, 'Timeframe', False, False))
         self.pm_tree.heading('TodayVol', text='Today Vol', command=lambda: self.sort_treeview(self.pm_tree, 'TodayVol', True, True))
         self.pm_tree.heading('Avg10DVol', text='Avg 10D Vol', command=lambda: self.sort_treeview(self.pm_tree, 'Avg10DVol', True, True))
+        self.pm_tree.heading('DailyVol', text='Daily Vol', command=lambda: self.sort_treeview(self.pm_tree, 'DailyVol', True, True))
         self.pm_tree.heading('RelVol', text='Rel Vol', command=lambda: self.sort_treeview(self.pm_tree, 'RelVol', True, True))
         self.pm_tree.heading('PercentDiff', text='% Diff', command=lambda: self.sort_treeview(self.pm_tree, 'PercentDiff', True, True))
         self.pm_tree.heading('Notes', text='Notes')
@@ -222,6 +238,7 @@ class DualVolumeScannerUI:
         self.pm_tree.column('Timeframe', width=80)
         self.pm_tree.column('TodayVol', width=100)
         self.pm_tree.column('Avg10DVol', width=100)
+        self.pm_tree.column('DailyVol', width=110)
         self.pm_tree.column('RelVol', width=80)
         self.pm_tree.column('PercentDiff', width=80)
         self.pm_tree.column('Notes', width=200)
@@ -276,7 +293,7 @@ class DualVolumeScannerUI:
         rth_scroll_y = ttk.Scrollbar(rth_table_frame, orient=tk.VERTICAL)
         rth_scroll_x = ttk.Scrollbar(rth_table_frame, orient=tk.HORIZONTAL)
         
-        columns = ('Ticker', 'Timeframe', 'TodayVol', 'Avg10DVol', 'RelVol', 'PercentDiff', 'Notes')
+        columns = ('Ticker', 'Timeframe', 'TodayVol', 'Avg10DVol', 'DailyVol', 'RelVol', 'PercentDiff', 'Notes')
         self.rth_tree = ttk.Treeview(rth_table_frame, columns=columns, show='headings',
                                      yscrollcommand=rth_scroll_y.set, xscrollcommand=rth_scroll_x.set)
         
@@ -288,6 +305,7 @@ class DualVolumeScannerUI:
         self.rth_tree.heading('Timeframe', text='Timeframe', command=lambda: self.sort_treeview(self.rth_tree, 'Timeframe', False, False))
         self.rth_tree.heading('TodayVol', text='Today Vol', command=lambda: self.sort_treeview(self.rth_tree, 'TodayVol', True, True))
         self.rth_tree.heading('Avg10DVol', text='Avg 10D Vol', command=lambda: self.sort_treeview(self.rth_tree, 'Avg10DVol', True, True))
+        self.rth_tree.heading('DailyVol', text='Daily Vol', command=lambda: self.sort_treeview(self.rth_tree, 'DailyVol', True, True))
         self.rth_tree.heading('RelVol', text='Rel Vol', command=lambda: self.sort_treeview(self.rth_tree, 'RelVol', True, True))
         self.rth_tree.heading('PercentDiff', text='% Diff', command=lambda: self.sort_treeview(self.rth_tree, 'PercentDiff', True, True))
         self.rth_tree.heading('Notes', text='Notes')
@@ -296,6 +314,7 @@ class DualVolumeScannerUI:
         self.rth_tree.column('Timeframe', width=80)
         self.rth_tree.column('TodayVol', width=100)
         self.rth_tree.column('Avg10DVol', width=100)
+        self.rth_tree.column('DailyVol', width=110)
         self.rth_tree.column('RelVol', width=80)
         self.rth_tree.column('PercentDiff', width=80)
         self.rth_tree.column('Notes', width=200)
@@ -340,6 +359,55 @@ class DualVolumeScannerUI:
         self.pm_scanner = None
         self.rth_scanner = None
     
+    def load_tickers_from_input(self):
+        """Load ticker list from direct input"""
+        try:
+            # Get text from input field
+            input_text = self.ticker_input.get("1.0", tk.END).strip()
+            
+            if not input_text:
+                messagebox.showwarning("Warning", "Please enter at least one ticker symbol")
+                return
+            
+            tickers = []
+            # Parse input - handle comma, space, or newline separated
+            for separator in [',', '\n', ' ', '\t']:
+                if separator in input_text:
+                    parts = input_text.split(separator)
+                    for part in parts:
+                        ticker = part.strip().upper()
+                        if ticker and not ticker.startswith('#'):
+                            # Remove any extra characters
+                            ticker = ''.join(c for c in ticker if c.isalnum() or c in ['.', '-'])
+                            if ticker:
+                                tickers.append(ticker)
+                    break
+            
+            # If no separator found, treat entire input as single ticker
+            if not tickers:
+                ticker = input_text.strip().upper()
+                ticker = ''.join(c for c in ticker if c.isalnum() or c in ['.', '-'])
+                if ticker:
+                    tickers.append(ticker)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_tickers = []
+            for ticker in tickers:
+                if ticker not in seen:
+                    seen.add(ticker)
+                    unique_tickers.append(ticker)
+            
+            if not unique_tickers:
+                messagebox.showwarning("Warning", "No valid ticker symbols found")
+                return
+            
+            self.tickers = unique_tickers
+            self.ticker_file_label.config(text=f"{len(unique_tickers)} tickers loaded from input")
+            messagebox.showinfo("Success", f"Loaded {len(unique_tickers)} ticker(s): {', '.join(unique_tickers[:10])}{'...' if len(unique_tickers) > 10 else ''}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load tickers: {str(e)}")
+    
     def load_tickers(self):
         """Load ticker list from file"""
         file_path = filedialog.askopenfilename(
@@ -364,9 +432,17 @@ class DualVolumeScannerUI:
                         if ticker:
                             tickers.append(ticker)
             
-            self.tickers = tickers
-            self.ticker_file_label.config(text=f"{len(tickers)} tickers loaded from {os.path.basename(file_path)}")
-            messagebox.showinfo("Success", f"Loaded {len(tickers)} tickers")
+            # Remove duplicates
+            seen = set()
+            unique_tickers = []
+            for ticker in tickers:
+                if ticker not in seen:
+                    seen.add(ticker)
+                    unique_tickers.append(ticker)
+            
+            self.tickers = unique_tickers
+            self.ticker_file_label.config(text=f"{len(unique_tickers)} tickers loaded from {os.path.basename(file_path)}")
+            messagebox.showinfo("Success", f"Loaded {len(unique_tickers)} ticker(s) from file")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load tickers: {str(e)}")
     
@@ -788,6 +864,7 @@ class DualVolumeScannerUI:
                     row['Timeframe'],
                     row['TodayVol'],
                     row['Avg10DVol'],
+                    row.get('DailyVol', 0),
                     row['RelVol'],
                     row['PercentDiff'],
                     row['Notes']
@@ -816,6 +893,7 @@ class DualVolumeScannerUI:
                     row['Timeframe'],
                     row['TodayVol'],
                     row['Avg10DVol'],
+                    row.get('DailyVol', 0),
                     row['RelVol'],
                     row['PercentDiff'],
                     row['Notes']

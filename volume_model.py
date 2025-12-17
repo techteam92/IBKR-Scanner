@@ -244,6 +244,60 @@ class VolumeCalculator:
         
         return today_vol, avg_10d_vol
     
+    def calculate_daily_volume(
+        self,
+        df: pd.DataFrame,
+        target_date: Optional[datetime] = None
+    ) -> float:
+        """
+        Calculate total daily volume (all bars for the given date).
+
+        This is independent of pre-market / RTH windows. It simply sums the
+        'volume' column for all bars that fall on the target date (in ET).
+
+        Args:
+            df: DataFrame with historical bars (must contain a 'date' column or
+                a DatetimeIndex).
+            target_date: Target date for "today" calculation. If None, uses the
+                latest date present in the data (in ET).
+
+        Returns:
+            Total volume for the target_date (float). Returns 0.0 if no data.
+        """
+        if df.empty or 'volume' not in df.columns:
+            return 0.0
+
+        # Ensure date column exists
+        if 'date' not in df.columns:
+            if isinstance(df.index, pd.DatetimeIndex):
+                df = df.reset_index()
+                if 'date' not in df.columns:
+                    df['date'] = df.index
+
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['date'])
+        # Normalize to US/Eastern
+        if df['date'].dt.tz is None:
+            df['date'] = df['date'].dt.tz_localize('US/Eastern')
+        else:
+            df['date'] = df['date'].dt.tz_convert('US/Eastern')
+
+        # Determine target date in ET
+        if target_date is None:
+            target_date = df['date'].max().date()
+        elif isinstance(target_date, datetime):
+            if target_date.tzinfo is None:
+                target_date = pytz.timezone('US/Eastern').localize(target_date)
+            target_date = target_date.date()
+
+        # Sum volume for that calendar date (ET)
+        mask = df['date'].dt.date == target_date
+        day_df = df[mask]
+        if day_df.empty:
+            return 0.0
+
+        return float(day_df['volume'].sum())
+    
     @staticmethod
     def calculate_relative_volume(today_vol: float, avg_vol: float) -> float:
         """Calculate relative volume (today_vol / avg_vol)"""

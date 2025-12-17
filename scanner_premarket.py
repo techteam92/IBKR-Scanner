@@ -102,6 +102,9 @@ class PreMarketScanner:
                 return results
             
             # Scan each timeframe
+            # Calculate total daily volume (all bars for the target date)
+            daily_vol = self.calculator.calculate_daily_volume(df, target_date)
+            
             for tf in timeframes:
                 today_vol, avg_10d_vol = self.calculator.calculate_premarket_volume(
                     df, tf, target_date
@@ -123,6 +126,7 @@ class PreMarketScanner:
                     'Timeframe': f"{tf}m",
                     'TodayVol': int(today_vol),
                     'Avg10DVol': int(avg_10d_vol),
+                    'DailyVol': int(daily_vol),
                     'RelVol': round(rel_vol, 2),
                     'PercentDiff': round(percent_diff, 2),
                     'Notes': notes
