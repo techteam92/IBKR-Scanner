@@ -188,14 +188,6 @@ class DualVolumeScannerUI:
         ttk.Checkbutton(pm_settings, text="Enable Pre-Market Scanner", variable=self.pm_enabled,
                        command=self.update_scanners).pack(side=tk.LEFT, padx=5)
         
-        # Timeframes
-        ttk.Label(pm_settings, text="Timeframes:").pack(side=tk.LEFT, padx=5)
-        self.pm_timeframes = {}
-        for tf in [5, 10, 15, 30, 60]:
-            var = tk.BooleanVar(value=True)
-            self.pm_timeframes[tf] = var
-            ttk.Checkbutton(pm_settings, text=f"{tf}m", variable=var).pack(side=tk.LEFT, padx=2)
-        
         # Min relative volume
         ttk.Label(pm_settings, text="Min Rel Vol:").pack(side=tk.LEFT, padx=5)
         self.pm_min_rel_vol = tk.StringVar(value="3.0")
@@ -452,9 +444,9 @@ class DualVolumeScannerUI:
             return
         
         # Update pre-market scanner
-        pm_timeframes = [tf for tf, var in self.pm_timeframes.items() if var.get()]
+        # Premarket doesn't use timeframes (only Total PM volume)
         pm_config = PreMarketConfig(
-            timeframes=pm_timeframes if pm_timeframes else [5, 10, 15, 30, 60],
+            timeframes=[],  # Empty list - only Total PM volume will be calculated
             min_relative_volume=float(self.pm_min_rel_vol.get() or "3.0"),
             min_avg_volume=int(self.pm_min_avg_vol.get() or "0"),
             enabled=self.pm_enabled.get()
@@ -496,15 +488,12 @@ class DualVolumeScannerUI:
             if not is_auto_refresh:
                 self.root.after(0, lambda: self.conn_status_label.config(text="Scanning Pre-Market...", foreground="orange"))
             
-            pm_timeframes = [tf for tf, var in self.pm_timeframes.items() if var.get()]
-            if not pm_timeframes:
-                self.root.after(0, lambda: messagebox.showwarning("Warning", "Please select at least one timeframe"))
-                self.root.after(0, lambda: self.conn_status_label.config(text="Connected", foreground="green"))
-                return
+            # Premarket only uses Total PM volume (no timeframes)
+            pm_timeframes = []
             
             # Update status with progress
             total_tickers = len(self.tickers)
-            print(f"\nStarting Pre-Market scan: {total_tickers} tickers, {len(pm_timeframes)} timeframes")
+            print(f"\nStarting Pre-Market scan: {total_tickers} tickers (Total PM volume only)")
             
             # Scan with progress updates
             all_results = []
@@ -520,17 +509,17 @@ class DualVolumeScannerUI:
                     print(f"  ✓ {ticker}: {len(ticker_results)} results")
                 except Exception as e:
                     print(f"  ✗ {ticker}: Error - {str(e)}")
-                    # Add error result for this ticker
-                    for tf in pm_timeframes:
-                        all_results.append({
-                            'Ticker': ticker,
-                            'Timeframe': f"{tf}m",
-                            'TodayVol': 0,
-                            'Avg10DVol': 0,
-                            'RelVol': 0.0,
-                            'PercentDiff': 0.0,
-                            'Notes': f"Error: {str(e)}"
-                        })
+                    # Add error result for this ticker (Total PM row only)
+                    all_results.append({
+                        'Ticker': ticker,
+                        'Timeframe': 'Total PM',
+                        'TodayVol': 0,
+                        'Avg10DVol': 0,
+                        'DailyVol': 0,
+                        'RelVol': 0.0,
+                        'PercentDiff': 0.0,
+                        'Notes': f"Error: {str(e)}"
+                    })
             
             # Create DataFrame and apply filters
             import pandas as pd

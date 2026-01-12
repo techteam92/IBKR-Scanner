@@ -298,6 +298,73 @@ class VolumeCalculator:
 
         return float(day_df['volume'].sum())
     
+    def calculate_total_premarket_volume(
+        self,
+        df: pd.DataFrame,
+        target_date: Optional[datetime] = None
+    ) -> Tuple[float, float]:
+        """
+        Calculate total pre-market volume for the entire pre-market session (04:00-09:30 ET)
+        and compare to 10-day average.
+        
+        Args:
+            df: DataFrame with historical bars
+            target_date: Target date for "today" calculation (default: latest date in data)
+        
+        Returns:
+            Tuple of (today_total_pm_volume, avg_10d_total_pm_volume)
+        """
+        if df.empty:
+            return 0.0, 0.0
+        
+        # Ensure date column exists
+        if 'date' not in df.columns:
+            if isinstance(df.index, pd.DatetimeIndex):
+                df = df.reset_index()
+                if 'date' not in df.columns:
+                    df['date'] = df.index
+        
+        df['date'] = pd.to_datetime(df['date'])
+        if df['date'].dt.tz is None:
+            df['date'] = df['date'].dt.tz_localize('US/Eastern')
+        else:
+            df['date'] = df['date'].dt.tz_convert('US/Eastern')
+        
+        # Filter to pre-market hours (04:00-09:30)
+        pm_df = self.filter_time_range(df, "04:00", "09:30")
+        
+        if pm_df.empty:
+            return 0.0, 0.0
+        
+        # Determine target date
+        if target_date is None:
+            target_date = pm_df['date'].max().date()
+        elif isinstance(target_date, datetime):
+            if target_date.tzinfo is None:
+                target_date = pytz.timezone('US/Eastern').localize(target_date)
+            target_date = target_date.date()
+        
+        # Calculate today's total premarket volume (entire 04:00-09:30 window)
+        today_mask = pm_df['date'].dt.date == target_date
+        today_df = pm_df[today_mask]
+        today_total_pm_vol = today_df['volume'].sum() if 'volume' in today_df.columns else 0.0
+        
+        # Calculate 10-day average of total premarket volume
+        pm_df['date_only'] = pm_df['date'].dt.date
+        unique_dates = sorted(pm_df['date_only'].unique(), reverse=True)[:self.lookback_days]
+        
+        avg_volumes = []
+        for date_val in unique_dates:
+            day_mask = pm_df['date_only'] == date_val
+            day_df = pm_df[day_mask]
+            day_total_pm_vol = day_df['volume'].sum() if 'volume' in day_df.columns else 0.0
+            if day_total_pm_vol > 0:  # Only include days with data
+                avg_volumes.append(day_total_pm_vol)
+        
+        avg_10d_total_pm_vol = sum(avg_volumes) / len(avg_volumes) if avg_volumes else 0.0
+        
+        return today_total_pm_vol, avg_10d_total_pm_vol
+    
     @staticmethod
     def calculate_relative_volume(today_vol: float, avg_vol: float) -> float:
         """Calculate relative volume (today_vol / avg_vol)"""

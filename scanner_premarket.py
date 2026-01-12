@@ -73,81 +73,114 @@ class PreMarketScanner:
                     error_msg = f"No data available from IBKR for {ticker}"
                 
                 print(f"Pre-Market Scanner: {error_msg}")
-                for tf in timeframes:
-                    results.append({
-                        'Ticker': ticker,
-                        'Timeframe': f"{tf}m",
-                        'TodayVol': 0,
-                        'Avg10DVol': 0,
-                        'RelVol': 0.0,
-                        'PercentDiff': 0.0,
-                        'Notes': error_msg
-                    })
+                # Add Total PM row with error (no timeframe rows for premarket)
+                results.append({
+                    'Ticker': ticker,
+                    'Timeframe': 'Total PM',
+                    'TodayVol': 0,
+                    'Avg10DVol': 0,
+                    'DailyVol': 0,
+                    'RelVol': 0.0,
+                    'PercentDiff': 0.0,
+                    'Notes': error_msg
+                })
                 return results
             
             # Check if we have the required columns
             if 'volume' not in df.columns:
                 error_msg = f"No volume column in data for {ticker}. Columns: {list(df.columns)}"
                 print(f"Pre-Market Scanner: {error_msg}")
-                for tf in timeframes:
-                    results.append({
-                        'Ticker': ticker,
-                        'Timeframe': f"{tf}m",
-                        'TodayVol': 0,
-                        'Avg10DVol': 0,
-                        'RelVol': 0.0,
-                        'PercentDiff': 0.0,
-                        'Notes': error_msg
-                    })
+                # Add Total PM row with error (no timeframe rows for premarket)
+                results.append({
+                    'Ticker': ticker,
+                    'Timeframe': 'Total PM',
+                    'TodayVol': 0,
+                    'Avg10DVol': 0,
+                    'DailyVol': 0,
+                    'RelVol': 0.0,
+                    'PercentDiff': 0.0,
+                    'Notes': error_msg
+                })
                 return results
             
-            # Scan each timeframe
+            # Calculate total premarket volume (entire 04:00-09:30 session)
+            today_total_pm_vol, avg_10d_total_pm_vol = self.calculator.calculate_total_premarket_volume(
+                df, target_date
+            )
+            
             # Calculate total daily volume (all bars for the target date)
             daily_vol = self.calculator.calculate_daily_volume(df, target_date)
             
-            for tf in timeframes:
-                today_vol, avg_10d_vol = self.calculator.calculate_premarket_volume(
-                    df, tf, target_date
-                )
-                
-                rel_vol = self.calculator.calculate_relative_volume(today_vol, avg_10d_vol)
-                percent_diff = self.calculator.calculate_percent_difference(today_vol, avg_10d_vol)
-                
-                # Apply filters
-                notes = ""
-                if avg_10d_vol < self.config.min_avg_volume:
-                    notes = f"Low baseline volume ({avg_10d_vol:.0f})"
-                
-                if rel_vol < self.config.min_relative_volume:
-                    notes = f"Below min rel vol threshold ({rel_vol:.2f}x)"
-                
-                result = {
-                    'Ticker': ticker,
-                    'Timeframe': f"{tf}m",
-                    'TodayVol': int(today_vol),
-                    'Avg10DVol': int(avg_10d_vol),
-                    'DailyVol': int(daily_vol),
-                    'RelVol': round(rel_vol, 2),
-                    'PercentDiff': round(percent_diff, 2),
-                    'Notes': notes
-                }
-                results.append(result)
-                
-                # Print result to terminal
-                print(f"    {tf}m: Today={int(today_vol):,} | Avg10D={int(avg_10d_vol):,} | RelVol={rel_vol:.2f}x | %Diff={percent_diff:.1f}% {notes}")
+            # Add total premarket volume row (before timeframe-specific rows)
+            pm_rel_vol = self.calculator.calculate_relative_volume(today_total_pm_vol, avg_10d_total_pm_vol)
+            pm_percent_diff = self.calculator.calculate_percent_difference(today_total_pm_vol, avg_10d_total_pm_vol)
+            
+            # Apply filters for total premarket volume
+            pm_notes = ""
+            if avg_10d_total_pm_vol < self.config.min_avg_volume:
+                pm_notes = f"Low baseline volume ({avg_10d_total_pm_vol:.0f})"
+            
+            if pm_rel_vol < self.config.min_relative_volume:
+                pm_notes = f"Below min rel vol threshold ({pm_rel_vol:.2f}x)"
+            
+            results.append({
+                'Ticker': ticker,
+                'Timeframe': 'Total PM',
+                'TodayVol': int(today_total_pm_vol),
+                'Avg10DVol': int(avg_10d_total_pm_vol),
+                'DailyVol': int(daily_vol),
+                'RelVol': round(pm_rel_vol, 2),
+                'PercentDiff': round(pm_percent_diff, 2),
+                'Notes': pm_notes
+            })
+            
+            print(f"    Total PM: Today={int(today_total_pm_vol):,} | Avg10D={int(avg_10d_total_pm_vol):,} | Daily={int(daily_vol):,} | RelVol={pm_rel_vol:.2f}x | %Diff={pm_percent_diff:.1f}% {pm_notes}")
+            
+            # Scan each timeframe (only if timeframes are specified)
+            if timeframes:
+                for tf in timeframes:
+                    today_vol, avg_10d_vol = self.calculator.calculate_premarket_volume(
+                        df, tf, target_date
+                    )
+                    
+                    rel_vol = self.calculator.calculate_relative_volume(today_vol, avg_10d_vol)
+                    percent_diff = self.calculator.calculate_percent_difference(today_vol, avg_10d_vol)
+                    
+                    # Apply filters
+                    notes = ""
+                    if avg_10d_vol < self.config.min_avg_volume:
+                        notes = f"Low baseline volume ({avg_10d_vol:.0f})"
+                    
+                    if rel_vol < self.config.min_relative_volume:
+                        notes = f"Below min rel vol threshold ({rel_vol:.2f}x)"
+                    
+                    result = {
+                        'Ticker': ticker,
+                        'Timeframe': f"{tf}m",
+                        'TodayVol': int(today_vol),
+                        'Avg10DVol': int(avg_10d_vol),
+                        'DailyVol': int(daily_vol),
+                        'RelVol': round(rel_vol, 2),
+                        'PercentDiff': round(percent_diff, 2),
+                        'Notes': notes
+                    }
+                    results.append(result)
+                    
+                    # Print result to terminal
+                    print(f"    {tf}m: Today={int(today_vol):,} | Avg10D={int(avg_10d_vol):,} | RelVol={rel_vol:.2f}x | %Diff={percent_diff:.1f}% {notes}")
         
         except Exception as e:
-            # Error handling
-            for tf in timeframes:
-                results.append({
-                    'Ticker': ticker,
-                    'Timeframe': f"{tf}m",
-                    'TodayVol': 0,
-                    'Avg10DVol': 0,
-                    'RelVol': 0.0,
-                    'PercentDiff': 0.0,
-                    'Notes': f"Error: {str(e)}"
-                })
+            # Error handling - Add Total PM row with error (no timeframe rows for premarket)
+            results.append({
+                'Ticker': ticker,
+                'Timeframe': 'Total PM',
+                'TodayVol': 0,
+                'Avg10DVol': 0,
+                'DailyVol': 0,
+                'RelVol': 0.0,
+                'PercentDiff': 0.0,
+                'Notes': f"Error: {str(e)}"
+            })
         
         return results
     
