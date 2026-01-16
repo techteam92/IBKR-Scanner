@@ -9,14 +9,14 @@ from typing import List, Optional
 class ScannerConfig:
     """Base configuration for volume scanners"""
     lookback_days: int = 10
-    timeframes: List[int] = None  # [5, 10, 15, 30, 60] in minutes
+    timeframes: List[int] = None  # [1, 2, 5, 10, 15, 30, 60] in minutes
     min_relative_volume: float = 3.0
     min_avg_volume: int = 0
     enabled: bool = True
     
     def __post_init__(self):
         if self.timeframes is None:
-            self.timeframes = [5, 10, 15, 30, 60]
+            self.timeframes = [1, 2, 5, 10, 15, 30, 60]
 
 
 @dataclass

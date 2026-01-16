@@ -171,10 +171,11 @@ class VolumeCalculator:
         target_date: Optional[datetime] = None
     ) -> Tuple[float, float]:
         """
-        Calculate RTH volume for a specific timeframe
+        Calculate RTH volume for a specific timeframe from current point backwards
         
         RTH window: 09:30-16:00 ET
-        For timeframe T: volume in [09:30, 09:30 + T)
+        For timeframe T: volume in [current_time - T, current_time)
+        where current_time is the latest bar timestamp in the data
         
         Args:
             df: DataFrame with historical bars
@@ -206,7 +207,7 @@ class VolumeCalculator:
         if rth_df.empty:
             return 0.0, 0.0
         
-        # Determine target date
+        # Determine target date and current time (latest bar on target date)
         if target_date is None:
             target_date = rth_df['date'].max().date()
         elif isinstance(target_date, datetime):
@@ -214,29 +215,54 @@ class VolumeCalculator:
                 target_date = pytz.timezone('US/Eastern').localize(target_date)
             target_date = target_date.date()
         
-        # Calculate window: [09:30, 09:30 + T) on target_date
-        target_datetime = datetime.combine(target_date, time(9, 30))
-        target_datetime = pytz.timezone('US/Eastern').localize(target_datetime)
-        window_end = target_datetime + timedelta(minutes=timeframe_minutes)
+        # Get latest bar time on target date (this is our "current point")
+        today_mask = rth_df['date'].dt.date == target_date
+        today_rth_df = rth_df[today_mask]
         
-        # Filter to today's window
-        today_mask = (rth_df['date'] >= target_datetime) & (rth_df['date'] < window_end)
-        today_df = rth_df[today_mask]
+        if today_rth_df.empty:
+            return 0.0, 0.0
+        
+        current_time = today_rth_df['date'].max()  # Latest bar timestamp
+        window_start = current_time - timedelta(minutes=timeframe_minutes)
+        
+        # Ensure window doesn't go before 9:30 AM
+        market_open = datetime.combine(target_date, time(9, 30))
+        market_open = pytz.timezone('US/Eastern').localize(market_open)
+        if window_start < market_open:
+            window_start = market_open
+        
+        # Filter to today's window: [window_start, current_time]
+        today_mask = (today_rth_df['date'] >= window_start) & (today_rth_df['date'] <= current_time)
+        today_df = today_rth_df[today_mask]
         today_vol = today_df['volume'].sum() if 'volume' in today_df.columns else 0.0
         
-        # Calculate 10-day average
+        # Calculate 10-day average (from latest bar backwards on each day)
         rth_df['date_only'] = rth_df['date'].dt.date
         unique_dates = sorted(rth_df['date_only'].unique(), reverse=True)[:self.lookback_days]
         
         avg_volumes = []
         for date_val in unique_dates:
-            date_dt = datetime.combine(date_val, time(9, 30))
-            date_dt = pytz.timezone('US/Eastern').localize(date_dt)
-            window_end_dt = date_dt + timedelta(minutes=timeframe_minutes)
+            # Get latest bar time on this date
+            day_mask = rth_df['date'].dt.date == date_val
+            day_rth_df = rth_df[day_mask]
             
-            day_mask = (rth_df['date'] >= date_dt) & (rth_df['date'] < window_end_dt)
-            day_df = rth_df[day_mask]
+            if day_rth_df.empty:
+                continue
+            
+            day_current_time = day_rth_df['date'].max()  # Latest bar on this day
+            day_window_start = day_current_time - timedelta(minutes=timeframe_minutes)
+            
+            # Ensure window doesn't go before 9:30 AM
+            day_market_open = datetime.combine(date_val, time(9, 30))
+            day_market_open = pytz.timezone('US/Eastern').localize(day_market_open)
+            if day_window_start < day_market_open:
+                day_window_start = day_market_open
+            
+            # Calculate volume for this day's window
+            day_window_mask = (day_rth_df['date'] >= day_window_start) & (day_rth_df['date'] <= day_current_time)
+            day_df = day_rth_df[day_window_mask]
             day_vol = day_df['volume'].sum() if 'volume' in day_df.columns else 0.0
+            
             if day_vol > 0:  # Only include days with data
                 avg_volumes.append(day_vol)
         

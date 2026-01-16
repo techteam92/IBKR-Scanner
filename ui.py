@@ -259,7 +259,7 @@ class DualVolumeScannerUI:
         # Timeframes
         ttk.Label(rth_settings, text="Timeframes:").pack(side=tk.LEFT, padx=5)
         self.rth_timeframes = {}
-        for tf in [5, 10, 15, 30, 60]:
+        for tf in [1, 2, 5, 10, 15, 30, 60]:
             var = tk.BooleanVar(value=True)
             self.rth_timeframes[tf] = var
             ttk.Checkbutton(rth_settings, text=f"{tf}m", variable=var).pack(side=tk.LEFT, padx=2)
@@ -456,7 +456,7 @@ class DualVolumeScannerUI:
         # Update RTH scanner
         rth_timeframes = [tf for tf, var in self.rth_timeframes.items() if var.get()]
         rth_config = RTHConfig(
-            timeframes=rth_timeframes if rth_timeframes else [5, 10, 15, 30, 60],
+            timeframes=rth_timeframes if rth_timeframes else [1, 2, 5, 10, 15, 30, 60],
             min_relative_volume=float(self.rth_min_rel_vol.get() or "3.0"),
             min_avg_volume=int(self.rth_min_avg_vol.get() or "0"),
             enabled=self.rth_enabled.get()
