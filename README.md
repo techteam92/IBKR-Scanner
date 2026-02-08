@@ -1,4 +1,4 @@
-# Dual Volume Scanner (Pre-Market + Regular Hours)
+# Dual Volume Scanner (Pre-Market + Regular Hours) : P -729
 
 A comprehensive volume scanning tool with two separate scanning panels for pre-market and regular trading hours analysis.
 
